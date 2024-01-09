@@ -5,11 +5,13 @@ import numpy as np
 import os
 from PIL import Image, ImageDraw, ImageOps
 
-os.makedirs("temp_annot/",exist_ok=True)
-os.makedirs("dataset/",exist_ok=True)
-
 src_dir =  "temp_annot/"
 dest_dir = "dataset/"
+
+os.makedirs(src_dir,exist_ok=True)
+os.makedirs(dest_dir,exist_ok=True)
+
+
 
 for file in os.listdir(src_dir):
     if not file.endswith('.json'):
