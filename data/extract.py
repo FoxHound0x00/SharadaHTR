@@ -2,6 +2,7 @@ import json
 import random
 import string
 import numpy as np
+import os
 from PIL import Image, ImageDraw, ImageOps
 
 os.makedirs("temp_annot/",exist_ok=True)
