@@ -1,3 +1,18 @@
+import torch
+from torch import nn, optim
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+import pickle
+import Levenshtein as leven
+from skimage.color import rgb2gray
+from skimage.transform import rotate
+import matplotlib.pyplot as plt
+
+optimiser = optim.Adam
+loss_func = nn.CTCLoss(reduction='sum', zero_infinity=True)
+CyclicScheduler = optim.lr_scheduler.CyclicLR
+
 class Train(object):
 
     def __init__(self, model, dataloader, decode_map, loss_func=loss_func, optimiser=optimiser, 
