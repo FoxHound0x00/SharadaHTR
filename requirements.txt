@@ -1,0 +1,11 @@
+imageio
+matplotlib
+opencv-python
+pandas
+pillow
+python-Levenshtein
+scikit-image
+scipy
+torch
+torchaudio
+torchvision

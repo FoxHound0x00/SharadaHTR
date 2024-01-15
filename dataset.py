@@ -3,9 +3,8 @@ import numpy as np
 import os
 from torch.utils.data import Dataset
 from PIL import Image
-
 class SharadaDataset(Dataset):
-    """Dataset Class."""
+    """Scripture dataset Class."""
 
     def __init__(self, txt_dir, img_dir, transform=None, char_dict=None):
         """
@@ -41,20 +40,21 @@ class SharadaDataset(Dataset):
 
         except OSError:
             image = np.random.randint(0, 255, size=(50, 100), dtype=np.uint8)
-        
+
         txt_name = self.txt_paths[idx]
         txt_filepath = os.path.join(self.txt_dir,txt_name)
         try:
             with open(txt_filepath,'r') as file:
                 label = file.read()
-                
+
         except OSError:
-            
+
             label = ""
         if len(label) > self.max_len:
             self.max_len = len(label)
-            
+
         sample = {'image': image, 'label': label}
+        # print(sample)
         if self.transform:
             sample = self.transform(sample)
         return sample

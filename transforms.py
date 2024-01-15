@@ -38,22 +38,22 @@ class PadResize(object):
 
 class Deskew(object):
     """Deskew handwriting samples"""
-    
+
     def __call__(self, sample):
         image, label = sample['image'], sample['label']
-        
+
         try:
             threshold = filters.threshold_otsu(image)
         except ValueError:
             return {'image':image, 'label':label}
-        
+
         binary = image.copy() < threshold
-        
+
         # array of alpha values
         alphas = np.arange(-1, 1.1, 0.25)
         alpha_res = np.array([])
         alpha_params = []
-        
+
         for a in alphas:
             alpha_sum = 0
             shift_x = np.max([-a*binary.shape[0], 0])
@@ -61,46 +61,46 @@ class Deskew(object):
                           [0,1,0]], dtype=np.float64)
             img_size = (np.int(binary.shape[1] + np.ceil(np.abs(a*binary.shape[0]))), binary.shape[0])
             alpha_params.append((M, img_size))
-            
-            
+
+
             img_shear = cv.warpAffine(src=binary.astype(np.uint8),
-                                      M=M, dsize=img_size, 
+                                      M=M, dsize=img_size,
                                       flags=cv.INTER_NEAREST)
-            
+
             for i in range(0, img_shear.shape[1]):
                 if not np.any(img_shear[:, i]):
                     continue
-                
+
                 h_alpha = np.sum(img_shear[:, i])
                 fgr_pos = np.where(img_shear[:, i] == 1)
                 delta_y_alpha = fgr_pos[0][-1] - fgr_pos[0][0] + 1
-                
+
                 if h_alpha == delta_y_alpha:
                     alpha_sum += h_alpha**2
-                
+
             alpha_res = np.append(alpha_res, alpha_sum)
-            
+
         best_M, best_size = alpha_params[alpha_res.argmax()]
         deskewed_img = cv.warpAffine(src=image, M=best_M, dsize=best_size,
-                                      flags=cv.INTER_LINEAR, 
+                                      flags=cv.INTER_LINEAR,
                                       borderMode=cv.BORDER_CONSTANT,
                                       borderValue=255)
-        
+
         return {'image':deskewed_img, 'label':label}
-    
+
 class toRGB(object):
     """Convert the ndarrys to RGB tensors.
        Required if using ImageNet pretrained Resnet."""
-       
+
     def __call__(self, sample):
         image, label = sample['image'], sample['label']
         image = color.gray2rgb(image)
-        
+
         return {'image': image, 'label': label}
-    
+
 class ToTensor(object):
     """Convert ndarrays in sample to Tensors."""
-    
+
     def __init__(self, rgb=True):
         assert isinstance(rgb, bool)
         self.rgb = rgb
@@ -113,17 +113,17 @@ class ToTensor(object):
         # torch image: C X H X W
         image = F.to_tensor(image)
         return {'image': image, 'label': label}
-    
+
 
 
 class Normalize_Cust(object):
     """Normalise by channel mean and std"""
-    
+
     def __init__(self, mean, std):
         self.mean = torch.tensor(mean, dtype=torch.float)
         self.std = torch.tensor(std, dtype=torch.float)
         self.norm = Normalize(mean, std)
-    
+
     def __call__(self, sample):
         image, label = sample['image'], sample['label']
         return {'image': self.norm(image), 'label': label}
