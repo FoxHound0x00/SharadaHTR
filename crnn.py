@@ -42,6 +42,7 @@ class CNN(nn.Module):
             ResidualBlock(128, 256, stride=2)
         )
         self.conv2 = nn.Conv2d(256, hidden_size, kernel_size=1, stride=1, padding=0, bias=False)
+        self.pool = nn.AdaptiveAvgPool2d((1, None))
 
     def forward(self, x):
         x = self.conv1(x)
@@ -49,6 +50,7 @@ class CNN(nn.Module):
         x = self.relu(x)
         x = self.resblocks(x)
         x = self.conv2(x)
+        x = self.pool(x)
         return x
 
 class BiLSTM(nn.Module):
@@ -59,7 +61,9 @@ class BiLSTM(nn.Module):
 
     def forward(self, x):
         out, _ = self.lstm(x)
-        out = self.fc(out[:, -1, :])  
+        T, b, h = out.size() # T - time_steps
+        # print(out.size())
+        out = self.fc(out[:, -1, :])
         return out
 
 class CRNN(nn.Module):
@@ -70,8 +74,10 @@ class CRNN(nn.Module):
 
     def forward(self, x):
         x = self.cnn(x)
+        # print("shape",x.shape)
         x = x.squeeze(2)
-        print(x.shape)
-        x = x.permute(0, 2, 1)  
+        # print("after squeeze", x.shape )
+        x = x.permute(2, 0, 1)
         x = self.rnn(x)
+        print(x.shape)
         return x
