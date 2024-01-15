@@ -11,6 +11,7 @@ from torch.optim import Adam
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.transforms import Compose
 from torchvision import transforms
+from torchinfo import summary
 
 from utils import *
 from dataset import SharadaDataset
@@ -42,6 +43,9 @@ dl = SharadaDataLoader(dataset,
 crnn_model = CRNN(input_channels=3, hidden_size=256, num_layers=2, num_classes=len(dataset.char_dict) + 1).to(device)
 optimizer = Adam(crnn_model.parameters(), lr=0.001)
 
+# print(crnn_model)
+# summary(crnn_model, (100, 3, 64, 64))
+
 ctc_loss = nn.CTCLoss(blank=0, reduction='mean')
 # loss_func = nn.CTCLoss(reduction='sum', zero_infinity=True)
 
@@ -52,34 +56,28 @@ num_epochs = 10
 
 # Training loop
 for epoch in range(num_epochs):
-    crnn_model.train()  # Set the model to training mode
+    crnn_model.train()  
     total_loss = 0.0
 
-    # Iterate over the training dataset
-    for images, targets, lengths in train_loader:  # Assuming dl() returns train_loader
+    for images, targets, lengths in train_loader:  
         # print("Here:",images)
         images = images.to(device)
         targets = targets.to(device)
 
-        # Forward pass
-        logits, trans = crnn_model(images)
+        logits = crnn_model(images)
+        print(logits.shape)
 
         # Calculate the CTC loss
-        loss = ctc_loss(logits.permute(1, 0, 2), targets, lengths, lengths)
+        loss = ctc_loss(logits, targets, lengths, lengths)
 
-        # Backward pass and optimization
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
         total_loss += loss.item()
 
-    # Calculate average training loss for the epoch
     avg_loss = total_loss / len(train_loader)
-
-    # Log the training loss to Tensorboard
     writer.add_scalar('Loss/Train', avg_loss, epoch)
-
     print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}')
 
     # Validation
@@ -87,17 +85,13 @@ for epoch in range(num_epochs):
         crnn_model.eval()  # Set the model to evaluation mode
         val_loss = 0.0
 
-        # Iterate over the validation dataset
         with torch.no_grad():
             for val_images, val_targets, val_lengths in val_loader:  # Assuming dl() returns validation_loader
                 val_images = val_images.to(device)
                 val_targets = val_targets.to(device)
 
-                # Forward pass
-                val_logits, val_trans = crnn_model(val_images)
-
-                # Calculate the CTC loss
-                val_loss += ctc_loss(val_logits.permute(1, 0, 2), val_targets, val_lengths, val_lengths).item()
+                val_logits = crnn_model(val_images)
+                val_loss += ctc_loss(val_logits, val_targets, val_lengths, val_lengths).item()
 
                 _, predicted_labels = torch.max(val_logits, 2)
                 predicted_labels = ["".join([dataset.char_list[c] for c in row if c != 0]) for row in predicted_labels.cpu().numpy()]
@@ -107,16 +101,11 @@ for epoch in range(num_epochs):
 
                     writer.add_scalar('LevenshteinDistance/Validation', distance, epoch)
 
-        # Calculate average validation loss for the epoch
         avg_val_loss = val_loss / len(val_loader)
-
-        # Log the validation loss to Tensorboard
         writer.add_scalar('Loss/Validation', avg_val_loss, epoch)
+        crnn_model.train()
 
         print(f'Validation Loss: {avg_val_loss:.4f}')
 
-# Save the trained model
 torch.save(crnn_model.state_dict(), 'chk_pts/crnn_model.pth')
-
-# Close Tensorboard writer
 writer.close()
