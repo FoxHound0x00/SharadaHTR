@@ -22,8 +22,6 @@ os.makedirs("chk_pts/", exist_ok=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
-
-
 dataset = SharadaDataset(txt_dir='data/dataset/',       
                         img_dir='data/dataset/',                        
                         transform=Compose([                                                     
@@ -55,21 +53,33 @@ writer = SummaryWriter()
 num_epochs = 10
 
 # Training loop
-for epoch in range(num_epochs):
-    crnn_model.train()  
-    total_loss = 0.0
+writer = SummaryWriter()
+num_epochs = 10
 
-    for images, targets, lengths in train_loader:  
-        # print("Here:",images)
+# Training loop
+for epoch in range(num_epochs):
+    crnn_model.train()
+    total_loss = 0.0
+    i = 0
+    for images, targets, target_lengths in train_loader:
+        print("Batch No.",i)
         images = images.to(device)
         targets = targets.to(device)
 
-        logits = crnn_model(images)
-        print(logits.shape)
+        print(f"images: {images.shape}, Targets: {targets.shape}, lengths: {target_lengths.shape} ")
+
+        logits = crnn_model(images) # Outputs should be [TimeStep, Batch, NumClass]
+        logit_lengths = torch.LongTensor([logits.size(0)] * batch_size[0])
+
+        print(f"LOGIT SHAPE {logits.shape}")
+        # logits = logits.transpose(0, 1)
+        # print(f"LOGIT SHAPE {logits.shape}")
+        print(f" Logit Lengths : {logit_lengths.shape}  Target : {target_lengths.shape}")
+        print("__________________________________________________________________________")
 
         # Calculate the CTC loss
-        loss = ctc_loss(logits, targets, lengths, lengths)
-
+        loss = ctc_loss(logits, targets, logit_lengths, target_lengths)
+        i += 1
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -81,17 +91,23 @@ for epoch in range(num_epochs):
     print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}')
 
     # Validation
-    if (epoch + 1) % 1 == 0:  # You can adjust the frequency of validation
-        crnn_model.eval()  # Set the model to evaluation mode
+    if (epoch + 1) % 1 == 0:
+        crnn_model.eval()
         val_loss = 0.0
 
         with torch.no_grad():
-            for val_images, val_targets, val_lengths in val_loader:  # Assuming dl() returns validation_loader
+            for val_images, val_targets, val_target_lengths in val_loader:
                 val_images = val_images.to(device)
                 val_targets = val_targets.to(device)
 
                 val_logits = crnn_model(val_images)
-                val_loss += ctc_loss(val_logits, val_targets, val_lengths, val_lengths).item()
+                val_logit_lengths = torch.LongTensor([val_logits.size(0)] * batch_size[1])
+
+                val_logits = torch.nn.functional.log_softmax(val_logits, dim=2)
+
+
+
+                val_loss += ctc_loss(val_logits, val_targets, val_logit_lengths, val_target_lengths).item()
 
                 _, predicted_labels = torch.max(val_logits, 2)
                 predicted_labels = ["".join([dataset.char_list[c] for c in row if c != 0]) for row in predicted_labels.cpu().numpy()]

@@ -63,7 +63,12 @@ class BiLSTM(nn.Module):
         out, _ = self.lstm(x)
         T, b, h = out.size() # T - time_steps
         # print(out.size())
-        out = self.fc(out[:, -1, :])
+        # out = self.fc(out[:, -1, :])
+
+        t_rec = out.reshape(T * b, h)
+        out = self.fc(t_rec) # [T * b, nOut]
+        out = out.reshape(T, b, -1)
+
         return out
 
 class CRNN(nn.Module):
@@ -79,5 +84,6 @@ class CRNN(nn.Module):
         # print("after squeeze", x.shape )
         x = x.permute(2, 0, 1)
         x = self.rnn(x)
-        print(x.shape)
+        x = torch.nn.functional.log_softmax(x, dim=2) # Behaves Differently when batch_first is specified https://pytorch.org/docs/stable/generated/torch.nn.LSTM.html
+        # print(x.shape)
         return x

@@ -14,6 +14,7 @@ class SharadaDataset(Dataset):
             transform (callable, optional): Optional transform to be applied
                 on a sample.
         """
+        
         self.txt_dir = txt_dir
         self.img_dir = img_dir
         self.transform = transform
@@ -48,8 +49,8 @@ class SharadaDataset(Dataset):
                 label = file.read()
 
         except OSError:
-
             label = ""
+
         if len(label) > self.max_len:
             self.max_len = len(label)
 

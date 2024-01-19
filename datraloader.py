@@ -8,7 +8,7 @@ import numpy as np
 class SharadaDataLoader(object):
 
     def __init__(self, ds, batch_size=(16, 16), validation_split=0.2,
-                 shuffle=True, seed=42, device='cpu'):
+                 shuffle=True, seed=42, device='cpu', blank_label=9999):
         assert isinstance(ds, SharadaDataset)
         assert isinstance(batch_size, tuple)
         assert isinstance(validation_split, float)
@@ -22,6 +22,7 @@ class SharadaDataLoader(object):
         self.shuffle = shuffle
         self.seed = seed
         self.device = device
+        self.blank_label = blank_label
 
     def  __call__(self):
 
@@ -72,12 +73,19 @@ class SharadaDataLoader(object):
 
         # Merge captions (from tuple of 1D tensor to 2D tensor).
         lengths = [len(label) for label in labels]
-        targets = torch.zeros(sum(lengths)).long()
-        lengths = torch.tensor(lengths)
+
+        max_label_len = max(lengths)
+
+
+        targets = []
         for j, label in enumerate(labels):
-            start = sum(lengths[:j])
-            end = lengths[j]
-            targets[start:start+end] = torch.tensor([self.ds.char_dict.get(letter) for letter in label]).long()
+          temp = [self.ds.char_dict.get(letter) for letter in label]
+          temp.extend([self.blank_label] * (max_label_len - len(label)))
+          targets.append(torch.tensor(temp))
+          # targets.append([torch.tensor([self.ds.char_dict.get(letter) for letter in label]).long()])
+
+        targets = torch.stack(targets, 0)
+        lengths = torch.tensor(lengths)
 
         if self.device == 'cpu':
             dev = torch.device('cpu')
