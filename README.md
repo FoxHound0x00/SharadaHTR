@@ -1,6 +1,16 @@
 # SharadaHTR
 A handwritten text-recognition system for Sharada script
 
+### Environment setup
+
+1. Run the following command:
+    ```python -m venv sharada_env```
+
+2. Activate the environment
+    ```source sharada_env/bin/activate```
+
+3. Install the required libraries
+    ```pip3 install -r requirements.txt```
 
 ### Data Preparation
 

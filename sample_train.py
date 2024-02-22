@@ -1,5 +1,5 @@
 from data.dataset import SharadaDataset
-from data.dataloader import SharadaDataLoader
+from dataloader import SharadaDataLoader
 from model import SharadaCRNN
 from transforms import Rescale, Deskew, toRGB, ToTensor, Normalise
 from train import Train

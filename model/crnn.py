@@ -1,151 +1,142 @@
-# CRNN-CTC Pytorch Model
 import torch
-from torch import nn, optim
-from torchvision.models.resnet import BasicBlock
-import numpy as np
-from torch.utils.model_zoo import load_url
+from torch import nn
+from torch.nn import functional as F
 
-resnet_url = 'https://download.pytorch.org/models/resnet34-333f7ec4.pth'
+class ConvBNReLU(nn.Module):
 
-def downsample(chan_in, chan_out, stride, pad=0):
-    
-    return nn.Sequential(
-            nn.Conv2d(chan_in, chan_out, kernel_size=1, stride=stride, bias=False,
-                      padding=pad),
-            nn.BatchNorm2d(chan_out)
-            )
+    def __init__(self, input_channels, output_channels, kernel_size=3, stride=2, padding=1, dilation=1):
+        super().__init__()
+        self.conv = nn.Conv2d(input_channels, output_channels, kernel_size, stride, padding, dilation)
+        self.bn = nn.BatchNorm1d(output_channels)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        out = self.conv(x)
+        out = self.bn(out)
+        out = self.relu(out)
+        return out
+
+class ResidualBlock(nn.Module):
+
+    def __init__(self, channels):
+        super().__init__()
+        self.block = nn.Sequential(
+            ConvBNReLU(channels, channels),
+            ConvBNReLU(channels, channels),
+            nn.Conv2d(channels, channels, 1)
+        )
+
+    def forward(self, x):
+        res = self.block(x)
+        res += x
+        return F.relu(res)
 
 class CNN(nn.Module):
     
-    def __init__(self, chan_in, time_step, zero_init_residual=False):
-        super(CNN, self).__init__()
-        
-        self.chan_in = chan_in
-        if chan_in == 3:
-            self.conv1 = nn.Conv2d(chan_in, 64, kernel_size=7, stride=2, padding=2, 
-                               bias=False)
-        else:
-            self.chan1_conv = nn.Conv2d(chan_in, 64, kernel_size=7, stride=2, padding=2, 
-                               bias=False)
-        self.relu = nn.ReLU(inplace=True)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = nn.Sequential(*[BasicBlock(64, 64) for i in range(0, 3)])
-        self.layer2 = nn.Sequential(*[BasicBlock(64, 128, stride=2, 
-                                      downsample=downsample(64, 128, 2))\
-                                      if i == 0 else BasicBlock(128, 128)\
-                                      for i in range(0, 4)])
-        self.layer3 = nn.Sequential(*[BasicBlock(128, 256, stride=(1,2),
-                                      downsample=downsample(128, 256, (1,2)))\
-                                      if i == 0 else BasicBlock(256, 256)\
-                                      for i in range(0, 6)])
-        self.layer4 = nn.Sequential(*[BasicBlock(256, 512, stride=(1,2), 
-                                      downsample=downsample(256, 512, (1,2)))\
-                                      if i == 0 else BasicBlock(512, 512)\
-                                      for i in range(0, 3)])
-        self.avgpool = nn.AdaptiveAvgPool2d(output_size=(time_step, 1))
-        
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', 
-                                        nonlinearity='relu')
-            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-                
-        if zero_init_residual:
-            for m in self.modules():
-                if isinstance(m, BasicBlock):
-                    nn.init_constant_(m.bn2.weight, 0)
-                    
-    def forward(self, xb):
-        
-        if self.chan_in == 3:
-            out = self.maxpool(self.bn1(self.relu(self.conv1(xb))))
-        else:
-            out = self.maxpool(self.bn1(self.relu(self.chan1_conv(xb))))
-        out = self.layer1(out)
-        out = self.layer2(out)
-        out = self.layer3(out)
-        out = self.layer4(out)
-        out = self.avgpool(out)
-        
-        return out.squeeze(dim=3).transpose(1, 2)
-    
-class RNN(nn.Module):
-    
-    def __init__(self, feature_size, hidden_size, output_size, num_layers, dropout=0):
-        super(RNN, self).__init__()
-        
-        self.lstm = nn.LSTM(input_size=feature_size, hidden_size=hidden_size, num_layers=num_layers, 
-                            bidirectional=True, batch_first=True, dropout=dropout)
-        self.atrous_conv = nn.Conv2d(hidden_size*2, output_size, kernel_size=1, dilation=1)
-        
-    def forward(self, xb):
-        out, _ = self.lstm(xb)
-        out = self.atrous_conv(out.permute(0, 2, 1).unsqueeze(3))
-        return out.squeeze(3).permute((2, 0, 1))
-        
-class SharadaCRNN(nn.Module):
-    
-    def __init__(self, chan_in, time_step, feature_size,
-                 hidden_size, output_size, num_rnn_layers,
-                 rnn_dropout=0, zero_init_residual=False,
-                 pretrained=False, cpu=True):
-        super(CRNN, self).__init__()
-        
-        
-        self.cnn = CNN(chan_in=chan_in, time_step=time_step, 
-                       zero_init_residual=zero_init_residual)
-        self.rnn = RNN(feature_size=feature_size, hidden_size=hidden_size, 
-                       output_size=output_size, num_layers=num_rnn_layers,
-                       dropout=rnn_dropout)
-        
-        if pretrained and cpu:
-            self.load_state_dict(torch.load('chk_pts/Sharada_resnet34_weights.pth',
-                                            map_location=torch.device('cpu')))
-        elif pretrained and not cpu:
-            self.load_state_dict(torch.load('chk_pts/Sharada_resnet34_weights.pth',
-                                            map_location=torch.device('cuda')))
-        
-        self.time_step = time_step
-        self.to_freeze = []
-        self.frozen = []
-    
-    def forward(self, xb):
-        xb = xb.float()
-        out = self.cnn(xb)
-        out = self.rnn(out)
+    def __init__(self, num_classes):
+        super().__init__()
+        self.cnn = nn.Sequential(
+            # Input shape: batch_size, 1, height, width
+            nn.Conv2d(1, 64, 3, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            ResidualBlock(64),
+            ResidualBlock(64),
+            ResidualBlock(64),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            ResidualBlock(128),
+            ResidualBlock(128),
+            ResidualBlock(128),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            ResidualBlock(256),
+            ResidualBlock(256),
+            ResidualBlock(256),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Flatten(),
+            nn.Linear(in_features=256 * (image_height // 16) * (image_width // 16), out_features=num_classes)
+        )
+
+    def forward(self, x):
+        out = self.cnn(x)
         return out
-    
-    def best_path_decode(self, xb):
-        
-        with torch.no_grad():
-            out = self.forward(xb)
-            
-            softmax_out = out.softmax(2).argmax(2).permute(1, 0).cpu().numpy()
-            char_list = []
-            for i in range(0, softmax_out.shape[0]):
-                dup_rm = softmax_out[i, :][np.insert(np.diff(softmax_out[i, :]).astype(bool), 0, True)]
-                dup_rm = dup_rm[dup_rm != 0]
-                char_list.append(dup_rm.astype(int))
-                
-        return char_list
-    
-    def load_pretrained_resnet(self):
-        self.to_freeze = []
-        self.frozen = []
-        
-        model_dict = self.state_dict()
-        pretrained_dict = load_url(resnet_url)
-        pretrained_dict = {f'cnn.{k}': v for k, v in pretrained_dict.items() if f'cnn.{k}' in model_dict}
-        model_dict.update(pretrained_dict)
-        self.load_state_dict(pretrained_dict, strict=False)
-        for k in self.state_dict().keys():
-            if not 'running' in k and not 'track' in k:
-                self.frozen.append(False)
-                if k in pretrained_dict.keys():
-                    self.to_freeze.append(True)
-                else:
-                    self.to_freeze.append(False)
-        assert len(self.to_freeze) == len([p for p in self.parameters()])
+
+
+class BiGRU(nn.Module):
+    def __init__(self, input_dim, hidden_dim, num_layers, dropout):
+        super().__init__()
+        self.bigru = nn.GRU(input_dim, hidden_dim, num_layers, batch_first=True, bidirectional=True, dropout=dropout)
+    def forward(self, x):
+        outputs, _ = self.bigru(x)
+        return outputs
+
+class LinearCRF(nn.Module):
+    def __init__(self, input_dim, tagset_size):
+        super().__init__()
+        self.linear = nn.Linear(input_dim, tagset_size)
+    def forward(self, feats):
+        logits = self.linear(feats)
+        trans = torch.zeros((logits.shape[0], logits.shape[1], logits.shape[1])).to(device)
+        for i in range(trans.size(1)):
+            if i == 0:
+                trans[:,i,i+1] = -1e9
+            elif i < trans.size(1)-1:
+                trans[:,i,i-1] = -1e9
+                trans[:,i,i+1] = -1e9
+            else:
+                trans[:,i,i-1] = -1e9
+        return logits, trans
+
+class CRNN(nn.Module):
+    def __init__(self, num_classes, cnn_config={}, rnn_config={}):
+        super().__init__()
+        self.cnn = CNN(**cnn_config).to(device)
+        self.rnn = BiGRU(input_dim=cnn_config['output_dim'], **rnn_config)
+        self.crf = LinearCRF(input_dim=rnn_config['hidden_dim']*2, tagset_size=num_classes)
+    def forward(self, x):
+        cnn_outputs = self.cnn(x)
+        rnn_inputs = cnn_outputs.unsqueeze(-1).permute(0,2,1)
+        rnn_outputs, _ = self.rnn(rnn_inputs)
+        crf_inputs = rnn_outputs
+        logits, trans = self.crf(crf_inputs)
+        return logits, trans
+
+
+
+
+# def train_epoch(model, iterator, optimizer, criterion):
+#     epoch_loss = 0
+#     model.train()
+#     for batch in iterator:
+#         texts, targets = batch
+#         optimizer.zero_grad()
+#         logits, trans = model(texts)
+#         loss = criterion(logits, targets, trans)
+#         loss.backward()
+#         optimizer.step()
+#         epoch_loss += loss.item()
+#     return epoch_loss / len(iterator)
+# def evaluate(model, iterator, criterion):
+#     epoch_loss = 0
+#     model.eval()
+#     with torch.no_grad():
+#         for batch in iterator:
+#             texts, targets = batch
+#             logits, trans = model(texts)
+#             loss = criterion(logits, targets, trans)
+#             epoch_loss += loss.item()
+#     return epoch_loss / len(iterator)
+
+
+# # Instantiate the model, criterion, and optimizer here
+# model = CRNN(num_classes=len(unique_chars)+1, cnn_config={'input_channels': 1, 'output_dim': 256}, rnn_config={'input_dim': 256, 'hidden_dim': 256, 'num_layers': 2, 'dropout': 0.2})
+# criterion = CTCLoss()
+# optimizer = AdamW(model.parameters(), lr=0.001)
+# # Load pretrained weights here
+# pretrained_state_dict = torch.load('path/to/pretrained/weights.pt')
+# model.load_state_dict(pretrained_state_dict)
+# # Train the model here
+# for epoch in range(num_epochs):
+#     train_loss = train_epoch(model, train_iter, optimizer, criterion)
+#     val_loss = evaluate(model, valid_iter, criterion)
+#     print("Epoch {} | Training Loss: {:.4f} | Validation Loss: {:.4f}".format(epoch+1, train_loss, val_loss))
